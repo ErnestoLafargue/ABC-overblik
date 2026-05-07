@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   CheckCircle2,
-  Coins,
   LogOut,
   Plus,
   Search,
@@ -37,6 +36,7 @@ import {
 } from './lib/api';
 import {
   calculateMonthSalary,
+  calculateCustomerBaseSalary,
   getCommissionForMonth,
   payoutMonthKey,
 } from './lib/commission';
@@ -61,6 +61,8 @@ import {
   type SaveScope,
 } from './components/MonthSettingsPanel';
 import { AuthScreen } from './components/auth/AuthScreen';
+import { PayoutStatCard } from './components/PayoutStatCard';
+import { PayoutDetailsModal, type PayoutRow } from './components/PayoutDetailsModal';
 
 type Filter = 'alle' | CustomerStatus;
 
@@ -84,9 +86,7 @@ function App() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [payoutJumpFromMonth, setPayoutJumpFromMonth] = useState<string | null>(
-    null,
-  );
+  const [isPayoutModalOpen, setIsPayoutModalOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -171,6 +171,31 @@ function App() {
       count += b.approvedCount;
     }
     return { total, count };
+  }, [customers, settings, selectedMonth]);
+
+  const payoutRows = useMemo<PayoutRow[]>(() => {
+    const eligible = customers
+      .filter(
+        (c) =>
+          c.status === 'godkendt' &&
+          payoutMonthKey(c.udbetalingsDato) === selectedMonth,
+      )
+      .sort((a, b) => (a.udbetalingsDato < b.udbetalingsDato ? 1 : -1));
+
+    return eligible.map((c) => {
+      const cfg = getCommissionForMonth(toMonthKey(c.salgsDato), settings);
+      return {
+        id: c.id,
+        nordigoId: c.nordigoId,
+        navn: c.navn,
+        salgsDato: c.salgsDato,
+        opstartsDato: c.opstartsDato,
+        udbetalingsDato: c.udbetalingsDato,
+        samletOmsaetning: c.samletOmsaetning,
+        bilOmsaetning: c.bilOmsaetning,
+        commissionAmount: calculateCustomerBaseSalary(c, cfg),
+      };
+    });
   }, [customers, settings, selectedMonth]);
 
   const filteredTable = useMemo(() => {
@@ -340,14 +365,11 @@ function App() {
   }
 
   function handlePayoutCardClick() {
-    const payoutMonth = selectedMonth;
-    setSelectedMonth(addMonthsToKey(payoutMonth, -3));
-    setPayoutJumpFromMonth(payoutMonth);
+    setIsPayoutModalOpen(true);
   }
 
   function handleMonthChange(month: string) {
     setSelectedMonth(month);
-    setPayoutJumpFromMonth(null);
   }
 
   async function handleSettingsSave(next: Settings, scope: SaveScope) {
@@ -491,23 +513,12 @@ function App() {
             tone="success"
             icon={<Wallet className="h-5 w-5" />}
           />
-          <StatCard
-            title="Til udbetaling"
-            value={formatDKK(payoutBreakdown.total)}
+          <PayoutStatCard
+            amount={formatDKK(payoutBreakdown.total)}
             hint={`${payoutBreakdown.count} godkendt · Opstart ${monthLabel(addMonthsToKey(selectedMonth, -1))}`}
-            tone="warning"
-            icon={<Coins className="h-5 w-5" />}
             onClick={handlePayoutCardClick}
-            titleAttr="Gå til salgsmåneden der skaber denne udbetaling"
           />
         </section>
-
-        {payoutJumpFromMonth && (
-          <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-200">
-            Viser salg der skaber udbetaling i{' '}
-            {monthLabel(payoutJumpFromMonth).toLowerCase()}.
-          </div>
-        )}
 
         <section className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
@@ -547,15 +558,9 @@ function App() {
                     hint={`${goalStats.remainingDays} dage tilbage`}
                   />
                   <Mini
-                    label="Krævet pr. dag"
-                    value={
-                      goalStats.remainingRevenue === 0
-                        ? 'Mål nået'
-                        : goalStats.remainingDays === 0
-                          ? '—'
-                          : formatDKK(goalStats.requiredPerDay)
-                    }
-                    hint={`Snit nu: ${formatDKK(goalStats.avgPerDay)}/dag`}
+                    label="Heraf godkendt"
+                    value={formatDKK(breakdown.approvedRevenue)}
+                    hint={`${breakdown.approvedCount} godkendte kunder`}
                   />
                 </div>
                 <div className="mt-4">
@@ -710,6 +715,13 @@ function App() {
         settings={settings}
         onClose={() => setSettingsOpen(false)}
         onSave={handleSettingsSave}
+      />
+      <PayoutDetailsModal
+        open={isPayoutModalOpen}
+        monthLabel={monthLabel(selectedMonth)}
+        rows={payoutRows}
+        totalAmount={payoutBreakdown.total}
+        onClose={() => setIsPayoutModalOpen(false)}
       />
     </div>
   );
