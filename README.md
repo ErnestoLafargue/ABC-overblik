@@ -18,14 +18,17 @@ En moderne webapp til at holde styr på dine lukkede kunder, deres status (opret
 - 📊 Recharts
 - 🎯 lucide-react (ikoner)
 
-## Kom i gang
+## Kom i gang (Neon database)
 
 ```bash
 npm install
-npm run dev
+cp .env.example .env
+# indsæt din Neon DATABASE_URL i .env
+npm run dev:full
 ```
 
-Åbn så `http://localhost:5173` (eller den port Vite viser).
+Åbn så `http://localhost:5173`.
+Frontend kører på Vite, og API kører på port `8787`.
 
 ## Build
 
@@ -44,8 +47,7 @@ Hver kunde har:
 - `omsaetning` (DKK) og `provisionPct` (%) — bruges til at beregne din løn
 - `opfoelgningDato`, `noter`
 
-Data gemmes i `localStorage` under nøglen `abc-oversigt:customers:v1`.
-Klik **Nulstil** i headeren for at indlæse demo-data igen.
+Data gemmes i Neon Postgres via API'en (`/api/state`).
 
 ## Næste skridt (idéer)
 

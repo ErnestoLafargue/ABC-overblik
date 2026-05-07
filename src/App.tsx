@@ -22,13 +22,14 @@ import {
   canTransition,
   createCustomer,
   loadCustomers,
-  saveCustomers,
 } from './lib/storage';
 import {
+  DEFAULT_SETTINGS,
   freezePastMonths,
   loadSettings,
-  saveSettings,
 } from './lib/settings';
+import { loadRemoteState, saveRemoteState } from './lib/api';
+import { seedCustomers } from './lib/seed';
 import {
   calculateMonthSalary,
   getCommissionForMonth,
@@ -66,7 +67,9 @@ const STATUS_FILTERS: Filter[] = [
 
 function App() {
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [settings, setSettings] = useState<Settings>(loadSettings);
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [isHydrated, setIsHydrated] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthKey());
   const [filter, setFilter] = useState<Filter>('alle');
   const [search, setSearch] = useState('');
@@ -78,16 +81,41 @@ function App() {
   );
 
   useEffect(() => {
-    setCustomers(loadCustomers());
+    let cancelled = false;
+    async function hydrate() {
+      try {
+        const remote = await loadRemoteState();
+        if (cancelled) return;
+        setCustomers(remote.customers ?? seedCustomers());
+        setSettings(remote.settings ?? DEFAULT_SETTINGS);
+        setSyncError(null);
+      } catch {
+        if (cancelled) return;
+        // Local fallback keeps app usable if API/DB is down.
+        setCustomers(loadCustomers());
+        setSettings(loadSettings());
+        setSyncError('Kunne ikke forbinde til Neon. Viser lokale data.');
+      } finally {
+        if (!cancelled) setIsHydrated(true);
+      }
+    }
+    hydrate();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
-    saveCustomers(customers);
-  }, [customers]);
-
-  useEffect(() => {
-    saveSettings(settings);
-  }, [settings]);
+    if (!isHydrated) return;
+    const timeout = window.setTimeout(() => {
+      saveRemoteState({ customers, settings })
+        .then(() => setSyncError(null))
+        .catch(() =>
+          setSyncError('Kunne ikke gemme i Neon. Prøv igen om lidt.'),
+        );
+    }, 300);
+    return () => window.clearTimeout(timeout);
+  }, [customers, settings, isHydrated]);
 
   /** Kunder hvor SALGSDATO er i den valgte måned. */
   const monthCustomers = useMemo(
@@ -296,6 +324,11 @@ function App() {
       </header>
 
       <main className="mx-auto max-w-7xl px-6 py-8">
+        {syncError && (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">
+            {syncError}
+          </div>
+        )}
         <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
             title="Lukkede kunder"
@@ -518,7 +551,7 @@ function App() {
         </section>
 
         <footer className="mt-10 pb-6 text-center text-xs text-slate-400">
-          ABC-oversigt · Data gemmes lokalt i din browser
+          ABC-oversigt · Data gemmes i Neon database
         </footer>
       </main>
 
