@@ -46,6 +46,7 @@ import {
   isInMonth,
   monthKey as toMonthKey,
   monthLabel,
+  todayISO,
   weekdaysElapsed,
   weekdaysInMonth,
 } from './lib/dates';
@@ -232,6 +233,22 @@ function App() {
         .length,
     };
   }, [monthCustomers]);
+
+  const todayRevenue = useMemo(() => {
+    const today = todayISO();
+    return customers
+      .filter((c) => c.salgsDato === today)
+      .reduce((sum, c) => sum + c.samletOmsaetning, 0);
+  }, [customers]);
+
+  const todayRevenueToneClass = useMemo(() => {
+    const required = goalStats.requiredPerDay;
+    if (required <= 0) return 'text-emerald-600 dark:text-emerald-400';
+    if (todayRevenue >= required) return 'text-emerald-600 dark:text-emerald-400';
+    if (todayRevenue >= Math.max(0, required - 10000))
+      return 'text-amber-600 dark:text-amber-400';
+    return 'text-rose-600 dark:text-rose-400';
+  }, [todayRevenue, goalStats.requiredPerDay]);
 
   async function handleSubmit(data: NewCustomer, id?: string) {
     try {
@@ -462,8 +479,8 @@ function App() {
           />
           <StatCard
             title="Omsætning"
-            value={formatDKK(goalStats.activeRevenue)}
-            hint={`Heraf godkendt: ${formatDKK(breakdown.approvedRevenue)}`}
+            value={<span className={todayRevenueToneClass}>{formatDKK(todayRevenue)}</span>}
+            hint={`Krævet pr. dag: ${formatDKK(goalStats.requiredPerDay)}`}
             tone="default"
             icon={<TrendingUp className="h-5 w-5" />}
           />
