@@ -62,7 +62,11 @@ import {
 } from './components/MonthSettingsPanel';
 import { AuthScreen } from './components/auth/AuthScreen';
 import { PayoutStatCard } from './components/PayoutStatCard';
-import { PayoutDetailsModal, type PayoutRow } from './components/PayoutDetailsModal';
+import {
+  PayoutDetailsModal,
+  type PayoutCustomerRow,
+  type PayoutEntryRow,
+} from './components/PayoutDetailsModal';
 
 type Filter = 'alle' | CustomerStatus;
 
@@ -173,30 +177,100 @@ function App() {
     return { total, count };
   }, [customers, settings, selectedMonth]);
 
-  const payoutRows = useMemo<PayoutRow[]>(() => {
-    const eligible = customers
-      .filter(
-        (c) =>
-          c.status === 'godkendt' &&
-          payoutMonthKey(c.udbetalingsDato) === selectedMonth,
-      )
-      .sort((a, b) => (a.udbetalingsDato < b.udbetalingsDato ? 1 : -1));
+  const payoutRows = useMemo<PayoutCustomerRow[]>(() => {
+    const byCustomer = new Map<string, PayoutCustomerRow>();
 
-    return eligible.map((c) => {
-      const cfg = getCommissionForMonth(toMonthKey(c.salgsDato), settings);
-      return {
-        id: c.id,
-        nordigoId: c.nordigoId,
-        navn: c.navn,
-        salgsDato: c.salgsDato,
-        opstartsDato: c.opstartsDato,
-        udbetalingsDato: c.udbetalingsDato,
-        samletOmsaetning: c.samletOmsaetning,
-        bilOmsaetning: c.bilOmsaetning,
-        commissionAmount: calculateCustomerBaseSalary(c, cfg),
-      };
-    });
+    for (const customer of customers) {
+      if (customer.status !== 'godkendt') continue;
+
+      const matchingEntries: PayoutEntryRow[] = [];
+      for (const entry of customer.revenueEntries ?? []) {
+        if (payoutMonthKey(entry.payoutDate) !== selectedMonth) continue;
+        const cfg = getCommissionForMonth(toMonthKey(entry.saleDate), settings);
+        const pseudoCustomer: Customer = {
+          ...customer,
+          salgsDato: entry.saleDate,
+          opstartsDato: entry.startDate,
+          udbetalingsDato: entry.payoutDate,
+          samletOmsaetning: entry.totalRevenue,
+          bilOmsaetning: entry.carRevenue,
+        };
+        matchingEntries.push({
+          id: entry.id,
+          label: entry.label,
+          salgsDato: entry.saleDate,
+          opstartsDato: entry.startDate,
+          udbetalingsDato: entry.payoutDate,
+          samletOmsaetning: entry.totalRevenue,
+          bilOmsaetning: entry.carRevenue,
+          commissionAmount: calculateCustomerBaseSalary(pseudoCustomer, cfg),
+        });
+      }
+
+      if (matchingEntries.length === 0) {
+        if (payoutMonthKey(customer.udbetalingsDato) !== selectedMonth) continue;
+        const cfg = getCommissionForMonth(toMonthKey(customer.salgsDato), settings);
+        matchingEntries.push({
+          id: `${customer.id}-base`,
+          salgsDato: customer.salgsDato,
+          opstartsDato: customer.opstartsDato,
+          udbetalingsDato: customer.udbetalingsDato,
+          samletOmsaetning: customer.samletOmsaetning,
+          bilOmsaetning: customer.bilOmsaetning,
+          commissionAmount: calculateCustomerBaseSalary(customer, cfg),
+        });
+      }
+
+      const existing = byCustomer.get(customer.id);
+      if (!existing) {
+        byCustomer.set(customer.id, {
+          customerId: customer.id,
+          nordigoId: customer.nordigoId,
+          navn: customer.navn,
+          email: customer.email,
+          telefon: customer.telefon,
+          status: customer.status,
+          noter: customer.noter,
+          entries: matchingEntries,
+          totalRevenue: matchingEntries.reduce((sum, entry) => sum + entry.samletOmsaetning, 0),
+          totalCarRevenue: matchingEntries.reduce((sum, entry) => sum + entry.bilOmsaetning, 0),
+          totalCommission: matchingEntries.reduce((sum, entry) => sum + entry.commissionAmount, 0),
+        });
+        continue;
+      }
+
+      existing.entries.push(...matchingEntries);
+      existing.totalRevenue += matchingEntries.reduce(
+        (sum, entry) => sum + entry.samletOmsaetning,
+        0,
+      );
+      existing.totalCarRevenue += matchingEntries.reduce(
+        (sum, entry) => sum + entry.bilOmsaetning,
+        0,
+      );
+      existing.totalCommission += matchingEntries.reduce(
+        (sum, entry) => sum + entry.commissionAmount,
+        0,
+      );
+    }
+
+    return Array.from(byCustomer.values()).sort((a, b) =>
+      a.entries[0]?.udbetalingsDato < b.entries[0]?.udbetalingsDato ? 1 : -1,
+    );
   }, [customers, settings, selectedMonth]);
+
+  const payoutSummary = useMemo(() => {
+    return payoutRows.reduce(
+      (acc, row) => {
+        acc.totalCustomers += 1;
+        acc.totalRevenue += row.totalRevenue;
+        acc.totalCarRevenue += row.totalCarRevenue;
+        acc.totalAmount += row.totalCommission;
+        return acc;
+      },
+      { totalCustomers: 0, totalRevenue: 0, totalCarRevenue: 0, totalAmount: 0 },
+    );
+  }, [payoutRows]);
 
   const filteredTable = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -720,7 +794,17 @@ function App() {
         open={isPayoutModalOpen}
         monthLabel={monthLabel(selectedMonth)}
         rows={payoutRows}
-        totalAmount={payoutBreakdown.total}
+        totalCustomers={payoutSummary.totalCustomers}
+        totalRevenue={payoutSummary.totalRevenue}
+        totalCarRevenue={payoutSummary.totalCarRevenue}
+        totalAmount={payoutSummary.totalAmount}
+        onEditCustomer={(customerId) => {
+          const customer = customers.find((c) => c.id === customerId);
+          if (!customer) return;
+          setEditing(customer);
+          setFormOpen(true);
+          setIsPayoutModalOpen(false);
+        }}
         onClose={() => setIsPayoutModalOpen(false)}
       />
     </div>
