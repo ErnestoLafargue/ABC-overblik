@@ -500,7 +500,7 @@ function App() {
             icon={<Users className="h-5 w-5" />}
           />
           <StatCard
-            title="Omsætning"
+            title="Omsætning i dag"
             value={<span className={todayRevenueToneClass}>{formatDKK(todayRevenue)}</span>}
             hint={`Krævet pr. dag: ${formatDKK(goalStats.requiredPerDay)}`}
             tone="default"
