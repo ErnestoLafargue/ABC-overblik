@@ -37,6 +37,27 @@ npm run build
 npm run preview
 ```
 
+## Vercel deployment (Neon)
+
+Denne app forventer backend routes på samme domæne:
+- `GET /api/health`
+- `GET /api/state`
+- `PUT /api/state`
+
+Til Vercel er disse implementeret som serverless functions i `api/`.
+
+Sæt environment variable i Vercel-projektet:
+
+```bash
+DATABASE_URL=postgresql://...
+```
+
+Deploy via Git integration (push til `main`) eller:
+
+```bash
+vercel deploy --prod
+```
+
 ## Datamodel
 
 Hver kunde har:
