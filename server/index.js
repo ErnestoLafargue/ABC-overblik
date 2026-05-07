@@ -140,15 +140,20 @@ function isRecord(value) {
 }
 
 function rowToCustomer(row) {
+  const toIsoDay = (value) => {
+    const d = value instanceof Date ? value : new Date(String(value));
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toISOString().slice(0, 10);
+  };
   return {
     id: row.id,
     nordigoId: row.nordigo_id,
     navn: row.navn ?? undefined,
     email: row.email ?? undefined,
     telefon: row.telefon ?? undefined,
-    salgsDato: String(row.salgs_dato).slice(0, 10),
-    opstartsDato: String(row.opstarts_dato).slice(0, 10),
-    udbetalingsDato: String(row.udbetalings_dato).slice(0, 10),
+    salgsDato: toIsoDay(row.salgs_dato),
+    opstartsDato: toIsoDay(row.opstarts_dato),
+    udbetalingsDato: toIsoDay(row.udbetalings_dato),
     samletOmsaetning: Number(row.samlet_omsaetning) || 0,
     bilOmsaetning: Number(row.bil_omsaetning) || 0,
     status: row.status,

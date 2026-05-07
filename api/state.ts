@@ -6,7 +6,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export default async function handler(
-  req: { method?: string; body?: unknown },
+  req: {
+    method?: string;
+    body?: unknown;
+    headers?: Record<string, string | string[] | undefined>;
+  },
   res: {
     status: (code: number) => {
       json: (body: unknown) => void;

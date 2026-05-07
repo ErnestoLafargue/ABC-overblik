@@ -4,12 +4,9 @@ import type { Customer, CustomerStatus, NewCustomer } from '../types';
 import { ALLOWED_TRANSITIONS, STATUS_LABELS } from '../types';
 import {
   defaultOpstartsDato,
-  monthLabel,
-  monthKey as toMonthKey,
   todayISO,
   udbetalingsFromOpstart,
 } from '../lib/dates';
-import { formatDate } from '../lib/format';
 import { Field, inputCls } from './Field';
 import { NumberInput } from './NumberInput';
 
@@ -112,8 +109,6 @@ export function CustomerForm({ open, initial, onClose, onSubmit }: Props) {
     }));
   }
 
-  const derivedUdbetaling = udbetalingsFromOpstart(form.opstartsDato);
-
   const samletNum = Number(form.samletOmsaetning) || 0;
   const bilNum = Number(form.bilOmsaetning) || 0;
 
@@ -128,6 +123,7 @@ export function CustomerForm({ open, initial, onClose, onSubmit }: Props) {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (hasErrors) return;
+    if (!initial && !window.confirm('Har du udsendt tilbud?')) return;
 
     const opstartsDato =
       form.opstartsDato || defaultOpstartsDato(form.salgsDato);
@@ -239,14 +235,6 @@ export function CustomerForm({ open, initial, onClose, onSubmit }: Props) {
               onChange={(e) => handleOpstartsDatoChange(e.target.value)}
               className={inputCls}
             />
-            {derivedUdbetaling && (
-              <span className="mt-1 inline-flex w-fit items-center gap-1 rounded-md bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-950/30 dark:text-violet-300">
-                Udbetales {formatDate(derivedUdbetaling)}
-                <span className="text-violet-500/70 dark:text-violet-400/70">
-                  · {monthLabel(toMonthKey(derivedUdbetaling)).toLowerCase()}-view
-                </span>
-              </span>
-            )}
           </Field>
 
           <Field label="Samlet omsætning (DKK)">

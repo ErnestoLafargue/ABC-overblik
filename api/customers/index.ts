@@ -32,15 +32,21 @@ function toCustomerRowPayload(body: Record<string, unknown>) {
 }
 
 function rowToCustomer(row: Record<string, unknown>) {
+  const toIsoDay = (value: unknown) => {
+    const d = value instanceof Date ? value : new Date(String(value));
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toISOString().slice(0, 10);
+  };
+
   return {
     id: String(row.id),
     nordigoId: String(row.nordigo_id),
     navn: row.navn ? String(row.navn) : undefined,
     email: row.email ? String(row.email) : undefined,
     telefon: row.telefon ? String(row.telefon) : undefined,
-    salgsDato: String(row.salgs_dato).slice(0, 10),
-    opstartsDato: String(row.opstarts_dato).slice(0, 10),
-    udbetalingsDato: String(row.udbetalings_dato).slice(0, 10),
+    salgsDato: toIsoDay(row.salgs_dato),
+    opstartsDato: toIsoDay(row.opstarts_dato),
+    udbetalingsDato: toIsoDay(row.udbetalings_dato),
     samletOmsaetning: Number(row.samlet_omsaetning) || 0,
     bilOmsaetning: Number(row.bil_omsaetning) || 0,
     status: String(row.status),
