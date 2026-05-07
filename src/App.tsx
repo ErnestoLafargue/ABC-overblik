@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   CheckCircle2,
   Coins,
+  LogOut,
   Plus,
   Search,
   Settings as SettingsIcon,
@@ -18,18 +19,22 @@ import type {
   Settings,
 } from './types';
 import { COMMISSION_MODEL_LABELS, STATUS_LABELS } from './types';
-import {
-  canTransition,
-  createCustomer,
-  loadCustomers,
-} from './lib/storage';
+import { canTransition } from './lib/storage';
 import {
   DEFAULT_SETTINGS,
   freezePastMonths,
-  loadSettings,
 } from './lib/settings';
-import { loadRemoteState, saveRemoteState } from './lib/api';
-import { seedCustomers } from './lib/seed';
+import {
+  createRemoteCustomer,
+  deleteRemoteCustomer,
+  getCurrentUser,
+  listCustomers,
+  loadRemoteSettings,
+  logout,
+  saveRemoteSettings,
+  updateRemoteCustomer,
+  type SessionUser,
+} from './lib/api';
 import {
   calculateMonthSalary,
   getCommissionForMonth,
@@ -54,6 +59,7 @@ import {
   MonthSettingsPanel,
   type SaveScope,
 } from './components/MonthSettingsPanel';
+import { AuthScreen } from './components/auth/AuthScreen';
 
 type Filter = 'alle' | CustomerStatus;
 
@@ -66,9 +72,10 @@ const STATUS_FILTERS: Filter[] = [
 ];
 
 function App() {
+  const [user, setUser] = useState<SessionUser | null>(null);
+  const [authReady, setAuthReady] = useState(false);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
-  const [isHydrated, setIsHydrated] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthKey());
   const [filter, setFilter] = useState<Filter>('alle');
@@ -84,19 +91,34 @@ function App() {
     let cancelled = false;
     async function hydrate() {
       try {
-        const remote = await loadRemoteState();
+        const currentUser = await getCurrentUser();
         if (cancelled) return;
-        setCustomers(remote.customers ?? seedCustomers());
-        setSettings(remote.settings ?? DEFAULT_SETTINGS);
+        if (!currentUser) {
+          setUser(null);
+          setCustomers([]);
+          setSettings(DEFAULT_SETTINGS);
+          setSyncError(null);
+          return;
+        }
+        setUser(currentUser);
+        const [remoteCustomers, remoteSettings] = await Promise.all([
+          listCustomers(),
+          loadRemoteSettings(),
+        ]);
+        if (cancelled) return;
+        setCustomers(remoteCustomers);
+        setSettings(remoteSettings ?? DEFAULT_SETTINGS);
         setSyncError(null);
       } catch {
         if (cancelled) return;
-        // Local fallback keeps app usable if API/DB is down.
-        setCustomers(loadCustomers());
-        setSettings(loadSettings());
-        setSyncError('Kunne ikke forbinde til Neon. Viser lokale data.');
+        setUser(null);
+        setCustomers([]);
+        setSettings(DEFAULT_SETTINGS);
+        setSyncError('Kunne ikke hente session. Log ind igen.');
       } finally {
-        if (!cancelled) setIsHydrated(true);
+        if (!cancelled) {
+          setAuthReady(true);
+        }
       }
     }
     hydrate();
@@ -104,18 +126,6 @@ function App() {
       cancelled = true;
     };
   }, []);
-
-  useEffect(() => {
-    if (!isHydrated) return;
-    const timeout = window.setTimeout(() => {
-      saveRemoteState({ customers, settings })
-        .then(() => setSyncError(null))
-        .catch(() =>
-          setSyncError('Kunne ikke gemme i Neon. Prøv igen om lidt.'),
-        );
-    }, 300);
-    return () => window.clearTimeout(timeout);
-  }, [customers, settings, isHydrated]);
 
   /** Kunder hvor SALGSDATO er i den valgte måned. */
   const monthCustomers = useMemo(
@@ -223,37 +233,93 @@ function App() {
     };
   }, [monthCustomers]);
 
-  function handleSubmit(data: NewCustomer, id?: string) {
-    if (id) {
-      setCustomers((prev) =>
-        prev.map((c) => {
-          if (c.id !== id) return c;
-          const nextStatus = data.status ?? c.status;
-          if (nextStatus !== c.status && !canTransition(c.status, nextStatus)) {
-            return { ...c, ...data, status: c.status };
-          }
-          return { ...c, ...data, status: nextStatus };
-        }),
-      );
-    } else {
-      setCustomers((prev) => [createCustomer(data), ...prev]);
+  async function handleSubmit(data: NewCustomer, id?: string) {
+    try {
+      if (id) {
+        const current = customers.find((c) => c.id === id);
+        if (!current) return;
+        const nextStatus = data.status ?? current.status;
+        const merged = {
+          ...current,
+          ...data,
+          status:
+            nextStatus !== current.status && !canTransition(current.status, nextStatus)
+              ? current.status
+              : nextStatus,
+        };
+        await updateRemoteCustomer(id, {
+          nordigoId: merged.nordigoId,
+          navn: merged.navn,
+          email: merged.email,
+          telefon: merged.telefon,
+          salgsDato: merged.salgsDato,
+          opstartsDato: merged.opstartsDato,
+          udbetalingsDato: merged.udbetalingsDato,
+          samletOmsaetning: merged.samletOmsaetning,
+          bilOmsaetning: merged.bilOmsaetning,
+          status: merged.status,
+          friKundeChurn: merged.friKundeChurn,
+          noter: merged.noter,
+        });
+        setCustomers((prev) => prev.map((c) => (c.id === id ? merged : c)));
+      } else {
+        const created = await createRemoteCustomer({
+          nordigoId: data.nordigoId,
+          navn: data.navn,
+          email: data.email,
+          telefon: data.telefon,
+          salgsDato: data.salgsDato,
+          opstartsDato: data.opstartsDato,
+          udbetalingsDato: data.udbetalingsDato,
+          samletOmsaetning: data.samletOmsaetning,
+          bilOmsaetning: data.bilOmsaetning,
+          status: data.status ?? 'oprettelse',
+          friKundeChurn: data.friKundeChurn,
+          noter: data.noter,
+        });
+        setCustomers((prev) => [created, ...prev]);
+      }
+      setFormOpen(false);
+      setEditing(null);
+      setSyncError(null);
+    } catch {
+      setSyncError('Kunne ikke gemme i Neon. Prøv igen om lidt.');
     }
-    setFormOpen(false);
-    setEditing(null);
   }
 
-  function handleStatusChange(id: string, next: CustomerStatus) {
-    setCustomers((prev) =>
-      prev.map((c) => {
-        if (c.id !== id) return c;
-        if (!canTransition(c.status, next)) return c;
-        return { ...c, status: next };
-      }),
-    );
+  async function handleStatusChange(id: string, next: CustomerStatus) {
+    const current = customers.find((c) => c.id === id);
+    if (!current) return;
+    if (!canTransition(current.status, next)) return;
+    const updated = { ...current, status: next };
+    try {
+      await updateRemoteCustomer(id, {
+        nordigoId: updated.nordigoId,
+        navn: updated.navn,
+        email: updated.email,
+        telefon: updated.telefon,
+        salgsDato: updated.salgsDato,
+        opstartsDato: updated.opstartsDato,
+        udbetalingsDato: updated.udbetalingsDato,
+        samletOmsaetning: updated.samletOmsaetning,
+        bilOmsaetning: updated.bilOmsaetning,
+        status: updated.status,
+        friKundeChurn: updated.friKundeChurn,
+        noter: updated.noter,
+      });
+      setCustomers((prev) => prev.map((c) => (c.id === id ? updated : c)));
+    } catch {
+      setSyncError('Kunne ikke opdatere status. Prøv igen.');
+    }
   }
 
-  function handleDelete(id: string) {
-    setCustomers((prev) => prev.filter((c) => c.id !== id));
+  async function handleDelete(id: string) {
+    try {
+      await deleteRemoteCustomer(id);
+      setCustomers((prev) => prev.filter((c) => c.id !== id));
+    } catch {
+      setSyncError('Kunne ikke slette kunden. Prøv igen.');
+    }
   }
 
   function handlePayoutCardClick() {
@@ -267,7 +333,8 @@ function App() {
     setPayoutJumpFromMonth(null);
   }
 
-  function handleSettingsSave(next: Settings, scope: SaveScope) {
+  async function handleSettingsSave(next: Settings, scope: SaveScope) {
+    let finalSettings = next;
     if (scope === 'as_default') {
       const oldDefault = settings.defaultCommission;
       const monthlyWithFrozen = freezePastMonths(
@@ -276,11 +343,57 @@ function App() {
         selectedMonth,
         oldDefault,
       );
-      setSettings({ ...next, monthly: monthlyWithFrozen });
-    } else {
-      setSettings(next);
+      finalSettings = { ...next, monthly: monthlyWithFrozen };
+    }
+    try {
+      await saveRemoteSettings(finalSettings);
+      setSettings(finalSettings);
+      setSyncError(null);
+    } catch {
+      setSyncError('Kunne ikke gemme indstillinger. Prøv igen.');
     }
     setSettingsOpen(false);
+  }
+
+  async function handleLogout() {
+    try {
+      await logout();
+    } finally {
+      setUser(null);
+      setCustomers([]);
+      setSettings(DEFAULT_SETTINGS);
+      setAuthReady(true);
+    }
+  }
+
+  if (!authReady) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 text-sm text-slate-500 dark:bg-slate-950 dark:text-slate-400">
+        Indlæser...
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <AuthScreen
+        onAuthed={async (nextUser) => {
+          setUser(nextUser);
+          setAuthReady(true);
+          try {
+            const [remoteCustomers, remoteSettings] = await Promise.all([
+              listCustomers(),
+              loadRemoteSettings(),
+            ]);
+            setCustomers(remoteCustomers);
+            setSettings(remoteSettings);
+            setSyncError(null);
+          } catch {
+            setSyncError('Kunne ikke hente dine data fra Neon.');
+          }
+        }}
+      />
+    );
   }
 
   return (
@@ -301,6 +414,9 @@ function App() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <span className="hidden text-xs text-slate-500 sm:inline dark:text-slate-400">
+              {user.username}
+            </span>
             <MonthSwitcher value={selectedMonth} onChange={handleMonthChange} />
             <button
               onClick={() => setSettingsOpen(true)}
@@ -318,6 +434,13 @@ function App() {
             >
               <Plus className="h-4 w-4" />
               Ny kunde
+            </button>
+            <button
+              onClick={handleLogout}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              <LogOut className="h-4 w-4" />
+              Log ud
             </button>
           </div>
         </div>
