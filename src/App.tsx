@@ -78,6 +78,20 @@ const STATUS_FILTERS: Filter[] = [
   'annulleret',
 ];
 
+function customerForMonth(customer: Customer, month: string): Customer | null {
+  const entries = customer.revenueEntries?.filter((entry) => isInMonth(entry.saleDate, month)) ?? [];
+  if (entries.length === 0) return null;
+  return {
+    ...customer,
+    revenueEntries: entries,
+    salgsDato: entries[0].saleDate,
+    opstartsDato: entries[0].startDate,
+    udbetalingsDato: entries[0].payoutDate,
+    samletOmsaetning: entries.reduce((sum, entry) => sum + entry.totalRevenue, 0),
+    bilOmsaetning: entries.reduce((sum, entry) => sum + entry.carRevenue, 0),
+  };
+}
+
 function App() {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [authReady, setAuthReady] = useState(false);
@@ -132,9 +146,11 @@ function App() {
     };
   }, []);
 
-  /** Kunder hvor SALGSDATO er i den valgte måned. */
   const monthCustomers = useMemo(
-    () => customers.filter((c) => isInMonth(c.salgsDato, selectedMonth)),
+    () =>
+      customers
+        .map((customer) => customerForMonth(customer, selectedMonth))
+        .filter((customer): customer is Customer => customer !== null),
     [customers, selectedMonth],
   );
 
@@ -336,8 +352,9 @@ function App() {
   const todayRevenue = useMemo(() => {
     const today = todayISO();
     return customers
-      .filter((c) => c.salgsDato === today)
-      .reduce((sum, c) => sum + c.samletOmsaetning, 0);
+      .flatMap((c) => c.revenueEntries ?? [])
+      .filter((entry) => entry.saleDate === today)
+      .reduce((sum, entry) => sum + entry.totalRevenue, 0);
   }, [customers]);
 
   const todayRevenueToneClass = useMemo(() => {
@@ -373,6 +390,7 @@ function App() {
           udbetalingsDato: merged.udbetalingsDato,
           samletOmsaetning: merged.samletOmsaetning,
           bilOmsaetning: merged.bilOmsaetning,
+          revenueEntries: merged.revenueEntries,
           status: merged.status,
           friKundeChurn: merged.friKundeChurn,
           noter: merged.noter,
@@ -389,6 +407,7 @@ function App() {
           udbetalingsDato: data.udbetalingsDato,
           samletOmsaetning: data.samletOmsaetning,
           bilOmsaetning: data.bilOmsaetning,
+          revenueEntries: data.revenueEntries,
           status: data.status ?? 'oprettelse',
           friKundeChurn: data.friKundeChurn,
           noter: data.noter,
@@ -419,6 +438,7 @@ function App() {
         udbetalingsDato: updated.udbetalingsDato,
         samletOmsaetning: updated.samletOmsaetning,
         bilOmsaetning: updated.bilOmsaetning,
+        revenueEntries: updated.revenueEntries,
         status: updated.status,
         friKundeChurn: updated.friKundeChurn,
         noter: updated.noter,

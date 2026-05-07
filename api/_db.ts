@@ -67,12 +67,27 @@ export async function ensureSchema(): Promise<void> {
       oprettet_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS customer_revenue_entries (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      label TEXT NOT NULL DEFAULT '',
+      total_revenue NUMERIC NOT NULL DEFAULT 0,
+      car_revenue NUMERIC NOT NULL DEFAULT 0,
+      sale_date DATE NOT NULL,
+      start_date DATE NOT NULL,
+      payout_date DATE NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
     CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
     CREATE INDEX IF NOT EXISTS idx_customers_user_id ON customers(user_id);
     CREATE INDEX IF NOT EXISTS idx_customers_user_status ON customers(user_id, status);
     CREATE INDEX IF NOT EXISTS idx_customers_user_salgs_dato ON customers(user_id, salgs_dato);
+    CREATE INDEX IF NOT EXISTS idx_customer_entries_customer_id ON customer_revenue_entries(customer_id);
+    CREATE INDEX IF NOT EXISTS idx_customer_entries_sale_date ON customer_revenue_entries(sale_date);
+    CREATE INDEX IF NOT EXISTS idx_customer_entries_payout_date ON customer_revenue_entries(payout_date);
 
     CREATE TABLE IF NOT EXISTS app_state (
       user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,

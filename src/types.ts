@@ -25,6 +25,16 @@ export const ALLOWED_TRANSITIONS: Record<CustomerStatus, CustomerStatus[]> = {
   annulleret: ['oprettelse', 'godkendt', 'afvist', 'annulleret'],
 };
 
+export type RevenueEntry = {
+  id: string;
+  label: string;
+  totalRevenue: number;
+  carRevenue: number;
+  saleDate: string;
+  startDate: string;
+  payoutDate: string;
+};
+
 export type Customer = {
   id: string;
   /** Nordigo-ID \u2014 obligatorisk identifikator */
@@ -56,6 +66,7 @@ export type Customer = {
   noter?: string;
   /** ISO timestamp for hvorn\u00e5r r\u00e6kken blev oprettet i appen */
   oprettetAt: string;
+  revenueEntries: RevenueEntry[];
 };
 
 export type NewCustomer = Omit<Customer, 'id' | 'oprettetAt' | 'status'> & {

@@ -73,6 +73,24 @@ function carRev(c: Customer): number {
   return Math.max(0, c.bilOmsaetning);
 }
 
+function customerEntries(customer: Customer): Array<{
+  totalRevenue: number;
+  carRevenue: number;
+}> {
+  if (customer.revenueEntries?.length) {
+    return customer.revenueEntries.map((entry) => ({
+      totalRevenue: Math.max(0, entry.totalRevenue),
+      carRevenue: Math.max(0, entry.carRevenue),
+    }));
+  }
+  return [
+    {
+      totalRevenue: Math.max(0, customer.samletOmsaetning),
+      carRevenue: Math.max(0, customer.bilOmsaetning),
+    },
+  ];
+}
+
 /**
  * Beregner samlet l\u00f8n for et set af kunder under en given konfiguration.
  * Filtrerer selv p\u00e5 status='godkendt'.
@@ -82,9 +100,18 @@ export function calculateMonthSalary(
   config: CommissionConfig,
 ): SalaryBreakdown {
   const approved = customers.filter((c) => c.status === 'godkendt');
+  const approvedEntries = approved.flatMap((customer) =>
+    customerEntries(customer).map((entry) => ({
+      ...entry,
+      friKundeChurn: customer.friKundeChurn,
+    })),
+  );
 
-  const totalCar = approved.reduce((s, c) => s + carRev(c), 0);
-  const totalNonCar = approved.reduce((s, c) => s + nonCar(c), 0);
+  const totalCar = approvedEntries.reduce((s, entry) => s + entry.carRevenue, 0);
+  const totalNonCar = approvedEntries.reduce(
+    (s, entry) => s + Math.max(0, entry.totalRevenue - entry.carRevenue),
+    0,
+  );
   const totalApproved = totalCar + totalNonCar;
 
   let baseCommission = 0;
@@ -111,15 +138,16 @@ export function calculateMonthSalary(
       nonCarOver * ((config.aboveThresholdPct - config.basePct) / 100);
   }
 
-  const churnNonCar = approved.reduce(
-    (s, c) => (c.friKundeChurn ? s + nonCar(c) : s),
+  const churnNonCar = approvedEntries.reduce(
+    (s, entry) =>
+      entry.friKundeChurn ? s + Math.max(0, entry.totalRevenue - entry.carRevenue) : s,
     0,
   );
   const churnBonus = churnNonCar * (config.churnBonusPct / 100);
 
   return {
     model: config.model,
-    approvedCount: approved.length,
+    approvedCount: approvedEntries.length,
     approvedRevenue: totalApproved,
     approvedCarRevenue: totalCar,
     approvedNonCarRevenue: totalNonCar,
@@ -145,18 +173,24 @@ export function calculateCustomerBaseSalary(
   config: CommissionConfig,
 ): number {
   if (customer.status !== 'godkendt') return 0;
-  const nc = nonCar(customer);
-  const car = carRev(customer);
-  let base = 0;
-  if (config.model === 'fuld_provision') {
-    base = nc * (config.generalPct / 100) + car * (config.carPct / 100);
-  } else {
-    base = nc * (config.basePct / 100) + car * (config.basePct / 100);
-  }
-  const churn = customer.friKundeChurn
-    ? nc * (config.churnBonusPct / 100)
-    : 0;
-  return base + churn;
+  const synthetic: Customer = {
+    ...customer,
+    revenueEntries: [],
+  };
+  return customerEntries(customer).reduce((sum, entry) => {
+    synthetic.samletOmsaetning = entry.totalRevenue;
+    synthetic.bilOmsaetning = entry.carRevenue;
+    const nc = nonCar(synthetic);
+    const car = carRev(synthetic);
+    let base = 0;
+    if (config.model === 'fuld_provision') {
+      base = nc * (config.generalPct / 100) + car * (config.carPct / 100);
+    } else {
+      base = nc * (config.basePct / 100) + car * (config.basePct / 100);
+    }
+    const churn = customer.friKundeChurn ? nc * (config.churnBonusPct / 100) : 0;
+    return sum + base + churn;
+  }, 0);
 }
 
 /**

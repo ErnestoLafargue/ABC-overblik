@@ -15,6 +15,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+const ISO_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+type RevenueEntryPayload = {
+  label: string;
+  totalRevenue: number;
+  carRevenue: number;
+  saleDate: string;
+  startDate: string;
+  payoutDate: string;
+};
+
 function customerUpdatePayload(body: Record<string, unknown>) {
   return {
     nordigoId: String(body.nordigoId ?? '').trim(),
@@ -30,6 +41,52 @@ function customerUpdatePayload(body: Record<string, unknown>) {
     friKundeChurn: Boolean(body.friKundeChurn ?? false),
     noter: String(body.noter ?? '').trim() || null,
   };
+}
+
+function parseRevenueEntries(body: Record<string, unknown>): RevenueEntryPayload[] {
+  const raw = body.revenueEntries;
+  if (Array.isArray(raw) && raw.length > 0) {
+    return raw
+      .filter((entry) => isRecord(entry))
+      .map((entry, index) => ({
+        label: String(entry.label ?? '').trim() || `Beløb ${index + 1}`,
+        totalRevenue: Number(entry.totalRevenue ?? 0),
+        carRevenue: Number(entry.carRevenue ?? 0),
+        saleDate: String(entry.saleDate ?? ''),
+        startDate: String(entry.startDate ?? ''),
+        payoutDate: String(entry.payoutDate ?? ''),
+      }));
+  }
+
+  return [
+    {
+      label: 'Hovedbeløb',
+      totalRevenue: Number(body.samletOmsaetning ?? 0),
+      carRevenue: Number(body.bilOmsaetning ?? 0),
+      saleDate: String(body.salgsDato ?? ''),
+      startDate: String(body.opstartsDato ?? ''),
+      payoutDate: String(body.udbetalingsDato ?? ''),
+    },
+  ];
+}
+
+function validateEntries(entries: RevenueEntryPayload[]): string | null {
+  if (entries.length === 0) return 'Mindst én revenue entry er påkrævet';
+  for (const entry of entries) {
+    if (!ISO_DAY_RE.test(entry.saleDate)) return 'Ugyldig salgsdato';
+    if (!ISO_DAY_RE.test(entry.startDate)) return 'Ugyldig opstartsdato';
+    if (!ISO_DAY_RE.test(entry.payoutDate)) return 'Ugyldig udbetalingsdato';
+    if (!Number.isFinite(entry.totalRevenue) || entry.totalRevenue < 0) {
+      return 'Samlet omsætning skal være >= 0';
+    }
+    if (!Number.isFinite(entry.carRevenue) || entry.carRevenue < 0) {
+      return 'Bil omsætning skal være >= 0';
+    }
+    if (entry.carRevenue > entry.totalRevenue) {
+      return 'Bil omsætning kan ikke være større end samlet omsætning';
+    }
+  }
+  return null;
 }
 
 function readId(req: Req): string {
@@ -54,8 +111,14 @@ export default async function handler(req: Req, res: Res): Promise<void> {
     if (req.method === 'PUT') {
       const body = isRecord(req.body) ? req.body : {};
       const p = customerUpdatePayload(body);
+      const entries = parseRevenueEntries(body);
       if (!p.nordigoId) {
         res.status(400).json({ error: 'Nordigo-ID er påkrævet' });
+        return;
+      }
+      const validationError = validateEntries(entries);
+      if (validationError) {
+        res.status(400).json({ error: validationError });
         return;
       }
       const updated = await pool.query(
@@ -96,6 +159,26 @@ export default async function handler(req: Req, res: Res): Promise<void> {
       if (updated.rowCount === 0) {
         res.status(404).json({ error: 'Customer not found' });
         return;
+      }
+      await pool.query('DELETE FROM customer_revenue_entries WHERE customer_id = $1', [id]);
+      for (const entry of entries) {
+        await pool.query(
+          `
+          INSERT INTO customer_revenue_entries (
+            customer_id, label, total_revenue, car_revenue, sale_date, start_date, payout_date
+          )
+          VALUES ($1,$2,$3,$4,$5,$6,$7)
+          `,
+          [
+            id,
+            entry.label,
+            entry.totalRevenue,
+            entry.carRevenue,
+            entry.saleDate,
+            entry.startDate,
+            entry.payoutDate,
+          ],
+        );
       }
       res.status(200).json({ ok: true });
       return;

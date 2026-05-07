@@ -123,9 +123,24 @@ async function ensureSchema() {
       oprettet_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS customer_revenue_entries (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      label TEXT NOT NULL DEFAULT '',
+      total_revenue NUMERIC NOT NULL DEFAULT 0,
+      car_revenue NUMERIC NOT NULL DEFAULT 0,
+      sale_date DATE NOT NULL,
+      start_date DATE NOT NULL,
+      payout_date DATE NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     CREATE INDEX IF NOT EXISTS idx_customers_user_id ON customers(user_id);
     CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
     CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_customer_entries_customer_id ON customer_revenue_entries(customer_id);
+    CREATE INDEX IF NOT EXISTS idx_customer_entries_sale_date ON customer_revenue_entries(sale_date);
+    CREATE INDEX IF NOT EXISTS idx_customer_entries_payout_date ON customer_revenue_entries(payout_date);
 
     CREATE TABLE IF NOT EXISTS app_state (
       user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -139,27 +154,107 @@ function isRecord(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function rowToCustomer(row) {
-  const toIsoDay = (value) => {
-    const d = value instanceof Date ? value : new Date(String(value));
-    if (Number.isNaN(d.getTime())) return '';
-    return d.toISOString().slice(0, 10);
-  };
+const ISO_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function toIsoDay(value) {
+  const d = value instanceof Date ? value : new Date(String(value));
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toISOString().slice(0, 10);
+}
+
+function parseRevenueEntries(body) {
+  const raw = body?.revenueEntries;
+  if (Array.isArray(raw) && raw.length > 0) {
+    return raw
+      .filter((entry) => isRecord(entry))
+      .map((entry, index) => ({
+        label: String(entry.label ?? '').trim() || `Beløb ${index + 1}`,
+        totalRevenue: Number(entry.totalRevenue ?? 0),
+        carRevenue: Number(entry.carRevenue ?? 0),
+        saleDate: String(entry.saleDate ?? ''),
+        startDate: String(entry.startDate ?? ''),
+        payoutDate: String(entry.payoutDate ?? ''),
+      }));
+  }
+  return [
+    {
+      label: 'Hovedbeløb',
+      totalRevenue: Number(body?.samletOmsaetning ?? 0),
+      carRevenue: Number(body?.bilOmsaetning ?? 0),
+      saleDate: String(body?.salgsDato ?? ''),
+      startDate: String(body?.opstartsDato ?? ''),
+      payoutDate: String(body?.udbetalingsDato ?? ''),
+    },
+  ];
+}
+
+function validateEntries(entries) {
+  if (!entries.length) return 'Mindst én revenue entry er påkrævet';
+  for (const entry of entries) {
+    if (!ISO_DAY_RE.test(entry.saleDate)) return 'Ugyldig salgsdato';
+    if (!ISO_DAY_RE.test(entry.startDate)) return 'Ugyldig opstartsdato';
+    if (!ISO_DAY_RE.test(entry.payoutDate)) return 'Ugyldig udbetalingsdato';
+    if (!Number.isFinite(entry.totalRevenue) || entry.totalRevenue < 0)
+      return 'Samlet omsætning skal være >= 0';
+    if (!Number.isFinite(entry.carRevenue) || entry.carRevenue < 0)
+      return 'Bil omsætning skal være >= 0';
+    if (entry.carRevenue > entry.totalRevenue)
+      return 'Bil omsætning kan ikke være større end samlet omsætning';
+  }
+  return null;
+}
+
+async function ensureLegacyEntries(userId) {
+  await pool.query(
+    `
+    INSERT INTO customer_revenue_entries (
+      customer_id, label, total_revenue, car_revenue, sale_date, start_date, payout_date
+    )
+    SELECT
+      c.id,
+      'Hovedbeløb',
+      c.samlet_omsaetning,
+      c.bil_omsaetning,
+      c.salgs_dato,
+      c.opstarts_dato,
+      c.udbetalings_dato
+    FROM customers c
+    WHERE c.user_id = $1
+      AND NOT EXISTS (
+        SELECT 1 FROM customer_revenue_entries e WHERE e.customer_id = c.id
+      )
+    `,
+    [userId],
+  );
+}
+
+function rowToCustomer(row, entries) {
+  const revenueEntries = entries.map((entry) => ({
+    id: String(entry.id),
+    label: String(entry.label ?? ''),
+    totalRevenue: Number(entry.total_revenue) || 0,
+    carRevenue: Number(entry.car_revenue) || 0,
+    saleDate: toIsoDay(entry.sale_date),
+    startDate: toIsoDay(entry.start_date),
+    payoutDate: toIsoDay(entry.payout_date),
+  }));
+  const first = revenueEntries[0];
   return {
     id: row.id,
     nordigoId: row.nordigo_id,
     navn: row.navn ?? undefined,
     email: row.email ?? undefined,
     telefon: row.telefon ?? undefined,
-    salgsDato: toIsoDay(row.salgs_dato),
-    opstartsDato: toIsoDay(row.opstarts_dato),
-    udbetalingsDato: toIsoDay(row.udbetalings_dato),
-    samletOmsaetning: Number(row.samlet_omsaetning) || 0,
-    bilOmsaetning: Number(row.bil_omsaetning) || 0,
+    salgsDato: first?.saleDate ?? toIsoDay(row.salgs_dato),
+    opstartsDato: first?.startDate ?? toIsoDay(row.opstarts_dato),
+    udbetalingsDato: first?.payoutDate ?? toIsoDay(row.udbetalings_dato),
+    samletOmsaetning: revenueEntries.reduce((sum, entry) => sum + entry.totalRevenue, 0),
+    bilOmsaetning: revenueEntries.reduce((sum, entry) => sum + entry.carRevenue, 0),
     status: row.status,
     friKundeChurn: !!row.fri_kunde_churn,
     noter: row.noter ?? undefined,
     oprettetAt: new Date(row.oprettet_at).toISOString(),
+    revenueEntries,
   };
 }
 
@@ -317,6 +412,7 @@ app.put('/api/settings', requireAuth, async (req, res) => {
 });
 
 app.get('/api/customers', requireAuth, async (req, res) => {
+  await ensureLegacyEntries(req.user.id);
   const result = await pool.query(
     `
     SELECT id, nordigo_id, navn, email, telefon, salgs_dato, opstarts_dato,
@@ -328,13 +424,42 @@ app.get('/api/customers', requireAuth, async (req, res) => {
     `,
     [req.user.id],
   );
-  return res.json({ customers: result.rows.map(rowToCustomer) });
+  const ids = result.rows.map((row) => String(row.id));
+  const entriesResult =
+    ids.length === 0
+      ? { rows: [] }
+      : await pool.query(
+          `
+          SELECT id, customer_id, label, total_revenue, car_revenue, sale_date, start_date, payout_date
+          FROM customer_revenue_entries
+          WHERE customer_id = ANY($1::uuid[])
+          ORDER BY created_at ASC
+          `,
+          [ids],
+        );
+  const entryMap = new Map();
+  for (const row of entriesResult.rows) {
+    const key = String(row.customer_id);
+    const current = entryMap.get(key) ?? [];
+    current.push(row);
+    entryMap.set(key, current);
+  }
+  return res.json({
+    customers: result.rows.map((row) =>
+      rowToCustomer(row, entryMap.get(String(row.id)) ?? []),
+    ),
+  });
 });
 
 app.post('/api/customers', requireAuth, async (req, res) => {
   const body = req.body ?? {};
+  const entries = parseRevenueEntries(body);
   if (!body.nordigoId) {
     return res.status(400).json({ error: 'Nordigo-ID er påkrævet' });
+  }
+  const validationError = validateEntries(entries);
+  if (validationError) {
+    return res.status(400).json({ error: validationError });
   }
   const created = await pool.query(
     `
@@ -363,11 +488,47 @@ app.post('/api/customers', requireAuth, async (req, res) => {
       body.noter || null,
     ],
   );
-  return res.status(201).json({ customer: rowToCustomer(created.rows[0]) });
+  const customerId = String(created.rows[0].id);
+  for (const entry of entries) {
+    await pool.query(
+      `
+      INSERT INTO customer_revenue_entries (
+        customer_id, label, total_revenue, car_revenue, sale_date, start_date, payout_date
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7)
+      `,
+      [
+        customerId,
+        entry.label,
+        entry.totalRevenue,
+        entry.carRevenue,
+        entry.saleDate,
+        entry.startDate,
+        entry.payoutDate,
+      ],
+    );
+  }
+  const createdEntries = await pool.query(
+    `
+    SELECT id, customer_id, label, total_revenue, car_revenue, sale_date, start_date, payout_date
+    FROM customer_revenue_entries
+    WHERE customer_id = $1
+    ORDER BY created_at ASC
+    `,
+    [customerId],
+  );
+  return res
+    .status(201)
+    .json({ customer: rowToCustomer(created.rows[0], createdEntries.rows) });
 });
 
 app.put('/api/customers/:id', requireAuth, async (req, res) => {
   const body = req.body ?? {};
+  const entries = parseRevenueEntries(body);
+  const validationError = validateEntries(entries);
+  if (validationError) {
+    return res.status(400).json({ error: validationError });
+  }
   const updated = await pool.query(
     `
     UPDATE customers
@@ -404,6 +565,28 @@ app.put('/api/customers/:id', requireAuth, async (req, res) => {
   );
   if (updated.rowCount === 0) {
     return res.status(404).json({ error: 'Customer not found' });
+  }
+  await pool.query('DELETE FROM customer_revenue_entries WHERE customer_id = $1', [
+    req.params.id,
+  ]);
+  for (const entry of entries) {
+    await pool.query(
+      `
+      INSERT INTO customer_revenue_entries (
+        customer_id, label, total_revenue, car_revenue, sale_date, start_date, payout_date
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7)
+      `,
+      [
+        req.params.id,
+        entry.label,
+        entry.totalRevenue,
+        entry.carRevenue,
+        entry.saleDate,
+        entry.startDate,
+        entry.payoutDate,
+      ],
+    );
   }
   return res.json({ ok: true });
 });

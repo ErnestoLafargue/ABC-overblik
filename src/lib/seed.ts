@@ -19,7 +19,7 @@ function withDates(salgsDaysAgo: number) {
 
 export function seedCustomers(): Customer[] {
   const now = new Date().toISOString();
-  return [
+  const rows: Omit<Customer, 'revenueEntries'>[] = [
     {
       id: 'seed-1',
       nordigoId: 'NRD-1042',
@@ -138,4 +138,18 @@ export function seedCustomers(): Customer[] {
       oprettetAt: now,
     },
   ];
+  return rows.map((row) => ({
+    ...row,
+    revenueEntries: [
+      {
+        id: `${row.id}-entry-1`,
+        label: 'Hovedbeløb',
+        totalRevenue: row.samletOmsaetning,
+        carRevenue: row.bilOmsaetning,
+        saleDate: row.salgsDato,
+        startDate: row.opstartsDato,
+        payoutDate: row.udbetalingsDato,
+      },
+    ],
+  }));
 }
