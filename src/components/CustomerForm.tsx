@@ -276,13 +276,6 @@ export function CustomerForm({ open, initial, onClose, onSubmit }: Props) {
                 Hovedbeløb
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                <Field label="Label">
-                  <input
-                    value={primaryEntry.label}
-                    onChange={(e) => updateEntry(primaryEntry.id, { label: e.target.value })}
-                    className={inputCls}
-                  />
-                </Field>
                 <Field label="Samlet omsætning (DKK)">
                   <NumberInput
                     value={primaryEntry.totalRevenue}
@@ -312,9 +305,6 @@ export function CustomerForm({ open, initial, onClose, onSubmit }: Props) {
                     onChange={(e) => updateEntry(primaryEntry.id, { startDate: e.target.value })}
                     className={inputCls}
                   />
-                </Field>
-                <Field label="Udbetalingsdato">
-                  <input type="date" value={primaryEntry.payoutDate} readOnly className={inputCls} />
                 </Field>
               </div>
             </div>
@@ -346,13 +336,6 @@ export function CustomerForm({ open, initial, onClose, onSubmit }: Props) {
                     </button>
                   </div>
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    <Field label="Label">
-                      <input
-                        value={entry.label}
-                        onChange={(e) => updateEntry(entry.id, { label: e.target.value })}
-                        className={inputCls}
-                      />
-                    </Field>
                     <Field label="Samlet omsætning (DKK)">
                       <NumberInput
                         value={entry.totalRevenue}
@@ -382,9 +365,6 @@ export function CustomerForm({ open, initial, onClose, onSubmit }: Props) {
                         onChange={(e) => updateEntry(entry.id, { startDate: e.target.value })}
                         className={inputCls}
                       />
-                    </Field>
-                    <Field label="Udbetalingsdato">
-                      <input type="date" value={entry.payoutDate} readOnly className={inputCls} />
                     </Field>
                   </div>
                 </div>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   CheckCircle2,
+  Coins,
   LogOut,
   Plus,
   Search,
@@ -61,7 +62,6 @@ import {
   type SaveScope,
 } from './components/MonthSettingsPanel';
 import { AuthScreen } from './components/auth/AuthScreen';
-import { PayoutStatCard } from './components/PayoutStatCard';
 import {
   PayoutDetailsModal,
   type PayoutCustomerRow,
@@ -606,11 +606,16 @@ function App() {
             hint={`Model: ${COMMISSION_MODEL_LABELS[monthCommission.model]}${settings.monthly[selectedMonth]?.commission ? ' (override)' : ''}`}
             tone="success"
             icon={<Wallet className="h-5 w-5" />}
+            sensitive
           />
-          <PayoutStatCard
-            amount={formatDKK(payoutBreakdown.total)}
+          <StatCard
+            title="Til udbetaling"
+            value={formatDKK(payoutBreakdown.total)}
             hint={`${payoutBreakdown.count} godkendt · Opstart ${monthLabel(addMonthsToKey(selectedMonth, -1))}`}
+            tone="warning"
+            icon={<Coins className="h-5 w-5" />}
             onClick={handlePayoutCardClick}
+            sensitive
           />
         </section>
 
