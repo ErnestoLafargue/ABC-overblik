@@ -310,7 +310,7 @@ function App() {
     const workingDaysTotal = ms.workingDays ?? weekdaysInMonth(selectedMonth);
 
     const activeRevenue = monthCustomers
-      .filter((c) => c.status !== 'afvist' && c.status !== 'annulleret')
+      .filter((c) => c.status !== 'annulleret')
       .reduce((s, c) => s + c.samletOmsaetning, 0);
 
     const isCurrentMonth = selectedMonth === currentMonthKey();

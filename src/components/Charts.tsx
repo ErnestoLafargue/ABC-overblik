@@ -25,13 +25,13 @@ const STATUS_PIE_COLORS: Record<string, string> = {
   Annulleret: '#cbd5e1',
 };
 
-/** Bar chart: daglig omsaætning i den valgte måned (kun aktive statusser). */
+/** Bar chart: daglig omsaætning i den valgte måned (ekskl. annullerede). */
 export function DailyRevenueChart({ customers, monthKey }: Props) {
   const total = daysInMonth(monthKey);
   const buckets = new Array(total).fill(0) as number[];
 
   for (const c of customers) {
-    if (c.status === 'afvist' || c.status === 'annulleret') continue;
+    if (c.status === 'annulleret') continue;
     const d = new Date(c.salgsDato);
     const day = d.getDate();
     if (day >= 1 && day <= total) {

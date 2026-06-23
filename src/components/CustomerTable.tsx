@@ -65,8 +65,7 @@ export function CustomerTable({
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
             {customers.map((c) => {
               const base = calculateCustomerBaseSalary(c, commission);
-              const earningsActive =
-                c.status !== 'afvist' && c.status !== 'annulleret';
+              const earningsActive = c.status !== 'annulleret';
               return (
                 <tr
                   key={c.id}
