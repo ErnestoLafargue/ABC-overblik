@@ -65,7 +65,6 @@ export function CustomerTable({
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
             {customers.map((c) => {
               const base = calculateCustomerBaseSalary(c, commission);
-              const earningsActive = c.status !== 'annulleret';
               return (
                 <tr
                   key={c.id}
@@ -107,13 +106,7 @@ export function CustomerTable({
                   <td className="px-4 py-3 whitespace-nowrap text-slate-700 dark:text-slate-300">
                     {formatDate(c.opstartsDato)}
                   </td>
-                  <td
-                    className={`px-4 py-3 whitespace-nowrap text-right font-medium ${
-                      earningsActive
-                        ? 'text-slate-900 dark:text-slate-100'
-                        : 'text-slate-400 line-through'
-                    }`}
-                  >
+                  <td className="px-4 py-3 whitespace-nowrap text-right font-medium text-slate-900 dark:text-slate-100">
                     {formatDKK(c.samletOmsaetning)}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-right text-slate-700 dark:text-slate-300">

@@ -166,8 +166,8 @@ function App() {
 
   /**
    * "Til udbetaling denne måned":
-   *   For hver kunde med payoutMonthKey(udbetalingsDato) == selectedMonth,
-   *   grupper efter salgs-måned og anvend dén måneds settings.
+   * - Provision beregnes pr. salgsmåned med den måneds satser.
+   * - Fastløn lægges kun på én gang og hentes fra selectedMonth - 3.
    */
   const payoutBreakdown = useMemo(() => {
     const eligible = customers.filter(
@@ -182,15 +182,25 @@ function App() {
       arr.push(c);
       bySalesMonth.set(k, arr);
     }
-    let total = 0;
+    let commissionTotal = 0;
     let count = 0;
     for (const [k, group] of bySalesMonth) {
       const cfg = getCommissionForMonth(k, settings);
       const b = calculateMonthSalary(group, cfg);
-      total += b.total;
+      commissionTotal += b.baseCommission + b.churnBonus;
       count += b.approvedCount;
     }
-    return { total, count };
+    const anchorMonthKey = addMonthsToKey(selectedMonth, -3);
+    const anchorConfig = getCommissionForMonth(anchorMonthKey, settings);
+    const fixedSalary =
+      anchorConfig.model === 'fastloen' ? anchorConfig.fixedSalary : 0;
+    return {
+      total: commissionTotal + fixedSalary,
+      count,
+      commissionTotal,
+      fixedSalary,
+      anchorMonthKey,
+    };
   }, [customers, settings, selectedMonth]);
 
   const payoutRows = useMemo<PayoutCustomerRow[]>(() => {
@@ -276,17 +286,28 @@ function App() {
   }, [customers, settings, selectedMonth]);
 
   const payoutSummary = useMemo(() => {
-    return payoutRows.reduce(
+    const base = payoutRows.reduce(
       (acc, row) => {
         acc.totalCustomers += 1;
         acc.totalRevenue += row.totalRevenue;
         acc.totalCarRevenue += row.totalCarRevenue;
-        acc.totalAmount += row.totalCommission;
+        acc.totalCommission += row.totalCommission;
         return acc;
       },
-      { totalCustomers: 0, totalRevenue: 0, totalCarRevenue: 0, totalAmount: 0 },
+      {
+        totalCustomers: 0,
+        totalRevenue: 0,
+        totalCarRevenue: 0,
+        totalCommission: 0,
+      },
     );
-  }, [payoutRows]);
+    return {
+      ...base,
+      fixedSalary: payoutBreakdown.fixedSalary,
+      totalAmount: payoutBreakdown.total,
+      anchorMonthKey: payoutBreakdown.anchorMonthKey,
+    };
+  }, [payoutRows, payoutBreakdown]);
 
   const filteredTable = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -309,9 +330,10 @@ function App() {
     const goal = ms.revenueGoal ?? 0;
     const workingDaysTotal = ms.workingDays ?? weekdaysInMonth(selectedMonth);
 
-    const activeRevenue = monthCustomers
-      .filter((c) => c.status !== 'annulleret')
-      .reduce((s, c) => s + c.samletOmsaetning, 0);
+    const activeRevenue = monthCustomers.reduce(
+      (s, c) => s + c.samletOmsaetning,
+      0,
+    );
 
     const isCurrentMonth = selectedMonth === currentMonthKey();
     const elapsed = isCurrentMonth
@@ -611,7 +633,7 @@ function App() {
           <StatCard
             title="Til udbetaling"
             value={formatDKK(payoutBreakdown.total)}
-            hint={`${payoutBreakdown.count} godkendt · Opstart ${monthLabel(addMonthsToKey(selectedMonth, -1))}`}
+            hint={`${payoutBreakdown.count} godkendt · Satser pr. salgsmåned · Fastløn fra ${monthLabel(payoutBreakdown.anchorMonthKey)}`}
             tone="warning"
             icon={<Coins className="h-5 w-5" />}
             onClick={handlePayoutCardClick}
@@ -822,6 +844,9 @@ function App() {
         totalCustomers={payoutSummary.totalCustomers}
         totalRevenue={payoutSummary.totalRevenue}
         totalCarRevenue={payoutSummary.totalCarRevenue}
+        totalCommission={payoutSummary.totalCommission}
+        fixedSalaryAmount={payoutSummary.fixedSalary}
+        fixedSalaryMonthLabel={monthLabel(payoutSummary.anchorMonthKey)}
         totalAmount={payoutSummary.totalAmount}
         onEditCustomer={(customerId) => {
           const customer = customers.find((c) => c.id === customerId);

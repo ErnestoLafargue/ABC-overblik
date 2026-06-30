@@ -35,6 +35,9 @@ type Props = {
   totalCustomers: number;
   totalRevenue: number;
   totalCarRevenue: number;
+  totalCommission: number;
+  fixedSalaryAmount: number;
+  fixedSalaryMonthLabel: string;
   totalAmount: number;
   onEditCustomer: (customerId: string) => void;
   onClose: () => void;
@@ -47,6 +50,9 @@ export function PayoutDetailsModal({
   totalCustomers,
   totalRevenue,
   totalCarRevenue,
+  totalCommission,
+  fixedSalaryAmount,
+  fixedSalaryMonthLabel,
   totalAmount,
   onEditCustomer,
   onClose,
@@ -79,7 +85,7 @@ export function PayoutDetailsModal({
               Til udbetaling – {monthLabel}
             </h2>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              Viser godkendte kunder med udbetaling i denne måned
+              Satser beregnes pr. salgsmåned. Fastløn hentes én gang fra {fixedSalaryMonthLabel}.
             </p>
           </div>
           <button
@@ -246,7 +252,7 @@ export function PayoutDetailsModal({
         </div>
 
         <div className="sticky bottom-0 border-t border-slate-200 bg-white/95 px-8 py-4 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
-          <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-6">
             <div>
               <p className="text-xs text-slate-500 dark:text-slate-400">Kunder</p>
               <p className="font-semibold text-slate-900 dark:text-slate-100">
@@ -263,6 +269,20 @@ export function PayoutDetailsModal({
               <p className="text-xs text-slate-500 dark:text-slate-400">Total bil omsætning</p>
               <p className="font-semibold text-slate-900 dark:text-slate-100">
                 {formatDKK(totalCarRevenue)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Provision</p>
+              <p className="font-semibold text-slate-900 dark:text-slate-100">
+                {formatDKK(totalCommission)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Fastløn ({fixedSalaryMonthLabel})
+              </p>
+              <p className="font-semibold text-slate-900 dark:text-slate-100">
+                {formatDKK(fixedSalaryAmount)}
               </p>
             </div>
             <div>
