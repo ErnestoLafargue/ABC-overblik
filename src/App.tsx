@@ -67,6 +67,10 @@ import {
   type PayoutCustomerRow,
   type PayoutEntryRow,
 } from './components/PayoutDetailsModal';
+import {
+  StatusDetailsModal,
+  type StatusDetailRow,
+} from './components/StatusDetailsModal';
 
 type Filter = 'alle' | CustomerStatus;
 
@@ -77,6 +81,13 @@ const STATUS_FILTERS: Filter[] = [
   'afvist',
   'annulleret',
 ];
+
+const STATUS_DETAIL_DESCRIPTIONS: Record<CustomerStatus, string> = {
+  godkendt: 'Optjent provision',
+  oprettelse: 'Potentiel provision hvis godkendt',
+  afvist: 'Mistet provision',
+  annulleret: 'Mistet provision',
+};
 
 function customerForMonth(customer: Customer, month: string): Customer | null {
   const entries = customer.revenueEntries?.filter((entry) => isInMonth(entry.saleDate, month)) ?? [];
@@ -105,6 +116,7 @@ function App() {
   const [editing, setEditing] = useState<Customer | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isPayoutModalOpen, setIsPayoutModalOpen] = useState(false);
+  const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -163,6 +175,83 @@ function App() {
     () => calculateMonthSalary(monthCustomers, monthCommission),
     [monthCustomers, monthCommission],
   );
+
+  const statusDetails = useMemo(() => {
+    const statuses = STATUS_FILTERS.filter(
+      (status): status is CustomerStatus => status !== 'alle',
+    );
+    const approvedCustomers = monthCustomers.filter(
+      (customer) => customer.status === 'godkendt',
+    );
+    const baseline = calculateMonthSalary(approvedCustomers, monthCommission);
+    const baselineCommission = baseline.baseCommission + baseline.churnBonus;
+
+    const rows: StatusDetailRow[] = statuses.map((status) => {
+      const statusCustomers = monthCustomers.filter(
+        (customer) => customer.status === status,
+      );
+      const hypotheticalCustomers = statusCustomers.map((customer) => ({
+        ...customer,
+        status: 'godkendt' as CustomerStatus,
+      }));
+      const revenue = statusCustomers.reduce(
+        (sum, customer) => sum + customer.samletOmsaetning,
+        0,
+      );
+      const carRevenue = statusCustomers.reduce(
+        (sum, customer) => sum + customer.bilOmsaetning,
+        0,
+      );
+
+      let commissionImpact = 0;
+      if (status === 'godkendt') {
+        commissionImpact = baselineCommission;
+      } else if (hypotheticalCustomers.length > 0) {
+        const hypothetical = calculateMonthSalary(
+          [...approvedCustomers, ...hypotheticalCustomers],
+          monthCommission,
+        );
+        commissionImpact =
+          hypothetical.baseCommission +
+          hypothetical.churnBonus -
+          baselineCommission;
+      }
+
+      return {
+        status,
+        count: statusCustomers.length,
+        revenue,
+        carRevenue,
+        commissionImpact,
+        description: STATUS_DETAIL_DESCRIPTIONS[status],
+        customers: statusCustomers
+          .map((customer) => ({
+            id: customer.id,
+            nordigoId: customer.nordigoId,
+            navn: customer.navn,
+            samletOmsaetning: customer.samletOmsaetning,
+            bilOmsaetning: customer.bilOmsaetning,
+            friKundeChurn: customer.friKundeChurn,
+            indicativeCommission: calculateCustomerBaseSalary(
+              { ...customer, status: 'godkendt' },
+              monthCommission,
+            ),
+          }))
+          .sort((a, b) =>
+            a.samletOmsaetning < b.samletOmsaetning ? 1 : -1,
+          ),
+      };
+    });
+
+    return {
+      rows,
+      totalRevenue: rows.reduce((sum, row) => sum + row.revenue, 0),
+      totalCommissionImpact: rows.reduce(
+        (sum, row) => sum + row.commissionImpact,
+        0,
+      ),
+    };
+  }, [monthCustomers, monthCommission]);
 
   /**
    * "Til udbetaling denne måned":
@@ -767,7 +856,10 @@ function App() {
             />
           </div>
           <div>
-            <StatusChart customers={monthCustomers} />
+            <StatusChart
+              customers={monthCustomers}
+              onClick={() => setIsStatusModalOpen(true)}
+            />
           </div>
         </section>
 
@@ -856,6 +948,14 @@ function App() {
           setIsPayoutModalOpen(false);
         }}
         onClose={() => setIsPayoutModalOpen(false)}
+      />
+      <StatusDetailsModal
+        open={isStatusModalOpen}
+        monthLabel={monthLabel(selectedMonth)}
+        rows={statusDetails.rows}
+        totalRevenue={statusDetails.totalRevenue}
+        totalCommissionImpact={statusDetails.totalCommissionImpact}
+        onClose={() => setIsStatusModalOpen(false)}
       />
     </div>
   );

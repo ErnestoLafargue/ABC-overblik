@@ -100,19 +100,75 @@ function formatDayLabel(day: string | number, monthKey: string): string {
   }).format(d);
 }
 
-export function StatusChart({ customers }: { customers: Customer[] }) {
-  const counts = new Map<string, number>();
+type StatusPieDatum = {
+  name: string;
+  value: number;
+  revenue: number;
+};
+
+function StatusTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload: StatusPieDatum }>;
+}) {
+  if (!active || !payload?.length) return null;
+  const { name, value, revenue } = payload[0].payload;
+  return (
+    <div
+      className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900"
+      style={{ fontSize: 13 }}
+    >
+      {name} {value} ({formatDKK(revenue)})
+    </div>
+  );
+}
+
+export function StatusChart({
+  customers,
+  onClick,
+}: {
+  customers: Customer[];
+  onClick?: () => void;
+}) {
+  const byStatus = new Map<string, { count: number; revenue: number }>();
   for (const c of customers) {
     const label = STATUS_LABELS[c.status];
-    counts.set(label, (counts.get(label) ?? 0) + 1);
+    const current = byStatus.get(label) ?? { count: 0, revenue: 0 };
+    byStatus.set(label, {
+      count: current.count + 1,
+      revenue: current.revenue + c.samletOmsaetning,
+    });
   }
-  const data = Array.from(counts.entries()).map(([name, value]) => ({
-    name,
-    value,
-  }));
+  const data: StatusPieDatum[] = Array.from(byStatus.entries()).map(
+    ([name, { count, revenue }]) => ({
+      name,
+      value: count,
+      revenue,
+    }),
+  );
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (!onClick) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onClick();
+    }
+  }
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <div
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={handleKeyDown}
+      className={`rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition dark:border-slate-800 dark:bg-slate-900 ${
+        onClick
+          ? 'cursor-pointer hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-violet-500/30'
+          : ''
+      }`}
+    >
       <h3 className="mb-4 text-sm font-semibold text-slate-900 dark:text-slate-50">
         Status-fordeling
       </h3>
@@ -141,13 +197,7 @@ export function StatusChart({ customers }: { customers: Customer[] }) {
                   />
                 ))}
               </Pie>
-              <Tooltip
-                contentStyle={{
-                  borderRadius: 8,
-                  border: '1px solid #e2e8f0',
-                  fontSize: 13,
-                }}
-              />
+              <Tooltip content={<StatusTooltip />} />
               <Legend
                 verticalAlign="bottom"
                 iconType="circle"
