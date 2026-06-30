@@ -111,16 +111,29 @@ function StatusTooltip({
   payload,
 }: {
   active?: boolean;
-  payload?: Array<{ payload: StatusPieDatum }>;
+  payload?: Array<{ payload: StatusPieDatum; color?: string }>;
 }) {
   if (!active || !payload?.length) return null;
   const { name, value, revenue } = payload[0].payload;
+  const color =
+    payload[0].color ?? STATUS_PIE_COLORS[name] ?? '#94a3b8';
   return (
     <div
       className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900"
       style={{ fontSize: 13 }}
     >
-      {name} {value} ({formatDKK(revenue)})
+      <span className="inline-flex items-center gap-2">
+        <span
+          className="h-2.5 w-2.5 shrink-0 rounded-full"
+          style={{ backgroundColor: color }}
+        />
+        <span style={{ color }} className="font-medium">
+          {name}
+        </span>
+        <span className="text-slate-700 dark:text-slate-200">
+          {value} ({formatDKK(revenue)})
+        </span>
+      </span>
     </div>
   );
 }
